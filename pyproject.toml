@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "better-princess"
+version = "0.1.0"
+description = ""
+authors = ["Mark Gius <mgius7096@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "3.10"
+
+[tool.poetry.dev-dependencies]
+ipython = "^7.27.0"
+black = "^21.9b0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
