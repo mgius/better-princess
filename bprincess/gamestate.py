@@ -1,7 +1,8 @@
 import random
 import collections
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, replace
+from types import new_class
+from typing import List, no_type_check
 import enum
 
 
@@ -57,11 +58,9 @@ GAME_BOARD = [
 SPACE_DISTRIBUTION = collections.Counter(GAME_BOARD)
 
 
-@dataclass
+@dataclass(frozen=True)
 class PlayerState:
-    """
-    2 * 2 * 2 * 2 * 2 * 3 = 96 possible user states
-    """
+    """ The base game rules """
 
     tiara: bool = False
     bracelet: bool = False
@@ -72,23 +71,89 @@ class PlayerState:
 
     board_position: int = 0
 
+    def __hash__(self) -> int:
+        return (
+            int(self.tiara) |
+            int(self.bracelet) << 1 |
+            int(self.necklace) << 2 |
+            int(self.ring) << 3 |
+            int(self.clear_ring) << 4 |
+            int(self.earrings.value) << 5)
+
     @property
     def has_won(self):
         return self.score == 6
 
-    def move(self, distance) -> BoardSpaceTypes:
-        self.board_position = (self.board_position + distance) % len(GAME_BOARD)
+    @property
+    def board_space(self):
         return GAME_BOARD[self.board_position]
 
-    def move_and_play(self, distance) -> int:
-        new_position = self.move(distance)
-        self.apply_board_space(new_position)
-        return self.score
+    @property
+    def possible_states(self):
+        states = []
+        for board_space in BoardSpaceTypes:
+            state = replace(self)
+            state.apply_board_space(board_space)
+            states.append(hash(state))
+
+        return states
+
+    @property
+    def score(self):
+        return (
+            self.earrings.value + 
+            sum(map(lambda v: 1 if v else 0, [self.tiara, self.bracelet, self.necklace, self.ring])) - 
+            (1 if self.clear_ring else 0))
+
+    def move(self, distance) -> "PlayerState":
+        new_position = (self.board_position + distance) % len(GAME_BOARD)
+        return replace(self, board_position=new_position)
+
+    def move_and_play(self, distance) -> "PlayerState":
+        moved = self.move(distance)
+        return moved.apply_board_space(self.board_space)
+
+    def _toggle_jewelry(self, remove=False) -> "PlayerState":
+        # pick a piece of jewelry and put it on or take it off
+        if remove and self.clear_ring is remove:
+            return replace(self, clear_ring=not remove)
+        elif self.tiara is remove:
+            return replace(self, tiara=not remove)
+        elif self.bracelet is remove:
+            return replace(self, bracelet=not remove)
+        elif self.necklace is remove:
+            return replace(self, necklace=not remove)
+        elif self.ring is remove:
+            return replace(self, ring=not remove)
+        else:
+            if remove:
+                return replace(self, earrings=self.earrings.decrement())
+            else:
+                return replace(self, earrings=self.earrings.increment())
+            
+    def apply_board_space(self, board_space: BoardSpaceTypes) -> "PlayerState":
+        match board_space:
+            case BoardSpaceTypes.BRACELET:
+                return replace(self, bracelet=True)
+            case BoardSpaceTypes.CROWN:
+                return replace(self, tiara=True)
+            case BoardSpaceTypes.EARRING:
+                return replace(self, earrings=EarringCount.increment(self.earrings))
+            case BoardSpaceTypes.MYSTERY_RING:
+                return replace(self, clear_ring=True)
+            case BoardSpaceTypes.NECKLACE:
+                return replace(self, necklace=True)
+            case BoardSpaceTypes.PUT_BACK:
+                return self._toggle_jewelry(remove=True)
+            case BoardSpaceTypes.RING:
+                return replace(self, ring=True)
+            case BoardSpaceTypes.TAKE_ANY_PIECE:
+                return self._toggle_jewelry(remove=False)
 
     @staticmethod
     def generate_all_states():
         # this code looks awful but it's only 96 loops
-        out = []
+        out = set()
         for tiara in [True, False]:
             for bracelet in [True, False]:
                 for necklace in [True, False]:
@@ -103,71 +168,33 @@ class PlayerState:
                                     clear_ring=clear_ring,
                                     earrings=earring,
                                 )
-                                if player.is_win():
-                                    # don't care about players already winning
-                                    continue
-                                out.append(player)
+                                out.add(player)
 
         return out
 
 
+TOKENS_NEEDED = 3
+@dataclass(frozen=True)
+class AlreadyWornTokens(PlayerState):
+    tokens: int = 0
+
+
     @property
     def score(self):
-        return (
-            self.earrings.value + 
-            sum(map(lambda v: 1 if v else 0, [self.tiara, self.bracelet, self.necklace, self.ring])) - 
-            (1 if self.clear_ring else 0))
+        return super().score + self.tokens / 3
 
-    def _toggle_jewelry(self, remove=False):
-        # pick a piece of jewelry and put it on or take it off
-        if remove and self.clear_ring is remove:
-            self.clear_ring = not remove
-        elif self.tiara is remove:
-            self.tiara = not remove
-        elif self.bracelet is remove:
-            self.bracelet = not remove
-        elif self.necklace is remove:
-            self.necklace = not remove
-        elif self.ring is remove:
-            self.ring = not remove
-        else:
-            if remove:
-                self.earrings = self.earrings.decrement()
-            else:
-                self.earrings = self.earrings.increment()
-            
-
-    def apply_board_space(self, board_space: BoardSpaceTypes):
-        match board_space:
-            case BoardSpaceTypes.BRACELET:
-                self.bracelet = True
-            case BoardSpaceTypes.CROWN:
-                self.crown = True
-            case BoardSpaceTypes.EARRING:
-                self.earrings = EarringCount.increment(self.earrings)
-            case BoardSpaceTypes.MYSTERY_RING:
-                self.clear_ring = True
-            case BoardSpaceTypes.NECKLACE:
-                self.neckace = True
-            case BoardSpaceTypes.PUT_BACK:
-                self._toggle_jewelry(remove=True)
-            case BoardSpaceTypes.RING:
-                self.ring = True
-            case BoardSpaceTypes.TAKE_ANY_PIECE:
-                self._toggle_jewelry(remove=False)
+    @property
+    def __hash__(self) -> int:
+        return super().__hash__() << 2 | self.tokens
 
 
-@dataclass
-class GameState:
-    players: List[PlayerState]
-
-    def apply_board_space(self, player: PlayerState, board_space: BoardSpaceTypes):
-        match board_space:
-            case BoardSpaceTypes.CROWN:
-                for player in self.players:
-                    player.crown = False
-            case BoardSpaceTypes.MYSTERY_RING:
-                for player in self.players:
-                    player.clear_ring = False
-
-        player.apply_board_space(board_space)
+    def apply_board_space(self, board_space: BoardSpaceTypes) -> "PlayerState":
+        new_state = super().apply_board_space(board_space)
+        if hash(new_state) == hash(self):
+            new_state = replace(new_state, tokens=new_state.tokens+1)
+        
+        if new_state.tokens == TOKENS_NEEDED:
+            new_state = new_state._toggle_jewelry()
+            new_state = replace(new_state, tokens=0)
+        
+        return new_state

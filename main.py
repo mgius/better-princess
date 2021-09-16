@@ -10,7 +10,8 @@ def run_simulation():
 
     for _ in range(100):
         to_move = random.randint(1, 4)
-        scores.append(player.move_and_play(to_move))
+        player = player.move_and_play(to_move)
+        scores.append(player.score)
         if player.has_won:
             break
 

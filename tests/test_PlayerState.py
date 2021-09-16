@@ -19,7 +19,7 @@ class TestToggleJewelry(unittest.TestCase):
         player = PlayerState()
         self.assertEqual(0, player.score)
         for i in range(1, 7):
-            player._toggle_jewelry()
+            player = player._toggle_jewelry()
             self.assertEqual(i, player.score)
 
         self.assertTrue(player.has_won)
