@@ -1,6 +1,6 @@
 import random
 import collections
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 from types import new_class
 from typing import List, no_type_check
 import enum
@@ -26,36 +26,13 @@ class EarringCount(enum.IntEnum):
 
 class BoardSpaceTypes(enum.Enum):
     NECKLACE = enum.auto()
+    PUT_BACK = enum.auto()
     BRACELET = enum.auto()
+    TAKE_ANY_PIECE = enum.auto()
     RING = enum.auto()
+    MYSTERY_RING = enum.auto()
     EARRING = enum.auto()
     CROWN = enum.auto()
-    MYSTERY_RING = enum.auto()
-    PUT_BACK = enum.auto()
-    TAKE_ANY_PIECE = enum.auto()
-
-
-GAME_BOARD = [
-    BoardSpaceTypes.NECKLACE,
-    BoardSpaceTypes.PUT_BACK,
-    BoardSpaceTypes.BRACELET,
-    BoardSpaceTypes.TAKE_ANY_PIECE,
-    BoardSpaceTypes.RING,
-    BoardSpaceTypes.MYSTERY_RING,
-    BoardSpaceTypes.EARRING,
-    BoardSpaceTypes.CROWN,
-    BoardSpaceTypes.NECKLACE,
-    BoardSpaceTypes.PUT_BACK,
-    BoardSpaceTypes.BRACELET,
-    BoardSpaceTypes.TAKE_ANY_PIECE,
-    BoardSpaceTypes.RING,
-    BoardSpaceTypes.MYSTERY_RING,
-    BoardSpaceTypes.EARRING,
-    BoardSpaceTypes.CROWN,
-]
-
-# each space is equally likely, excellent
-SPACE_DISTRIBUTION = collections.Counter(GAME_BOARD)
 
 
 @dataclass(frozen=True)
@@ -69,6 +46,7 @@ class PlayerState:
     clear_ring: bool = False
     earrings: EarringCount = EarringCount.ZERO
 
+    game_board: List[BoardSpaceTypes] = field(default_factory = lambda: list(BoardSpaceTypes))
     board_position: int = 0
 
     def __hash__(self) -> int:
@@ -86,7 +64,7 @@ class PlayerState:
 
     @property
     def board_space(self):
-        return GAME_BOARD[self.board_position]
+        return self.game_board[self.board_position]
 
     @property
     def possible_states(self):
@@ -106,7 +84,7 @@ class PlayerState:
             (1 if self.clear_ring else 0))
 
     def move(self, distance) -> "PlayerState":
-        new_position = (self.board_position + distance) % len(GAME_BOARD)
+        new_position = (self.board_position + distance) % len(self.game_board)
         return replace(self, board_position=new_position)
 
     def move_and_play(self, distance) -> "PlayerState":
@@ -173,17 +151,15 @@ class PlayerState:
         return out
 
 
-TOKENS_NEEDED = 3
 @dataclass(frozen=True)
-class AlreadyWornTokens(PlayerState):
+class AlreadyWornTokensPlayer(PlayerState):
+    tokens_needed: int = 2
     tokens: int = 0
-
 
     @property
     def score(self):
-        return super().score + self.tokens / 3
+        return super().score + self.tokens / (self.tokens_needed + 1)
 
-    @property
     def __hash__(self) -> int:
         return super().__hash__() << 2 | self.tokens
 
@@ -193,8 +169,25 @@ class AlreadyWornTokens(PlayerState):
         if hash(new_state) == hash(self):
             new_state = replace(new_state, tokens=new_state.tokens+1)
         
-        if new_state.tokens == TOKENS_NEEDED:
+        if new_state.tokens == self.tokens_needed:
             new_state = new_state._toggle_jewelry()
             new_state = replace(new_state, tokens=0)
         
         return new_state
+
+
+def NoMysteryRingPlayer(*args, **kwargs) -> PlayerState:
+    """ Had about a 2 turn impact. """
+    kwargs['game_board'] = list(BoardSpaceTypes)
+    kwargs['game_board'].remove(BoardSpaceTypes.MYSTERY_RING)
+
+    return PlayerState(*args, **kwargs)
+
+
+def ShuffledBoardPlayer(*args, **kwargs) -> PlayerState:
+    """ Unsurprisingly, this has little effect on the flow of the game, but it was worth verifying """
+    game_board = list(BoardSpaceTypes)
+    random.shuffle(game_board)
+    kwargs['game_board'] = game_board
+
+    return PlayerState(*args, **kwargs)
